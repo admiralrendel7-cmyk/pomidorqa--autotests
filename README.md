@@ -1,7 +1,5 @@
 # PomidorQA — автотесты
 
-[![Playwright CI](https://github.com/admiralrendel7-cmyk/pomidorqa--autotests/actions/workflows/playwright.yml/badge.svg)](https://github.com/admiralrendel7-cmyk/pomidorqa--autotests/actions/workflows/playwright.yml)
-
 Автотесты для сервиса [PomidorQA](https://aiqa.su/pomidorqa), выполненные в рамках марафона «Автоматизация на Playwright + TypeScript».
 
 PomidorQA — сервис коротких встреч для QA-сообщества: указываешь навыки, выбираешь свободный слот, бронируешь 25 минут с коллегой.
@@ -58,17 +56,6 @@ E2E построены на Page Object: сценарий живёт в `tests/e
 | 13. Критерии приёмки | `automated` | основной путь 1–6 и негативы закрыты; живая гонка остаётся на mock API |
 
 Единственный известный продуктовый дефект — **R8.3**: каталог находит участника по навыку «хочу разобрать», хотя требование ограничивает поиск разделом «могу помочь». Проверка написана по требованию и помечена `test.fail()`, поэтому дефект виден и не маскируется зелёным результатом.
-
-### Измеренная скорость
-
-Контрольный прогон: 1 worker, Chromium, `TZ=UTC`. Это фактическое время конкретных запусков, а не SLA.
-
-| Уровень | Объём | Результат | Время |
-| --- | ---: | ---: | ---: |
-| Unit | 18 | 18 passed | ~30 ms |
-| API | 16 | 16 passed | ~3 s |
-| E2E | 37 | 36 passed + 1 expected fail (R8.3) | ~3.2 min |
-| Всего | **71** | **71 passed** | **3.3 min** |
 
 ## Что покрыто
 
