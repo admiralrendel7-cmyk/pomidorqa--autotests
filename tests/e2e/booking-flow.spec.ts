@@ -1,5 +1,15 @@
 import { test, expect } from "@playwright/test";
-import { makeUser, registerUser } from "../helpers/user";
+import {
+  bookPublishedSlot,
+  openRegisteredSession,
+  openSession,
+  publishSkillAndSlot,
+} from "../helpers/session";
+import {
+  cleanupUsersViaApi,
+  makeUser,
+  registerUser,
+} from "../helpers/user";
 import { BookingPage } from "../pages/booking-page";
 import { ProfilePage } from "../pages/profile-page";
 
@@ -57,8 +67,8 @@ test.describe("Бронирование слота", () => {
   });
 
   test("гость бронирует слот хоста", async ({ browser }) => {
-    test.setTimeout(60_000);
-    const runId = Date.now();
+    test.setTimeout(90_000);
+    const runId = Date.now() * 100 + test.info().workerIndex;
     const skillTag = `Playwright-demo-${runId}`;
     const host = makeUser("host", runId);
     const guest = makeUser("guest", runId);
@@ -129,9 +139,219 @@ test.describe("Бронирование слота", () => {
         ).toBeVisible({ timeout: 15_000 });
         await expect(guestBooking.bookingConfirmError).toBeHidden();
       });
+
+      await test.step("Гость: открывает свои встречи", async () => {
+        await guestBooking.gotoBookings();
+      });
+
+      await test.step("У гостя встреча в ближайших", async () => {
+        await expect(guestBooking.upcomingByName(host.name)).toBeVisible();
+        await expect(guestBooking.upcomingEmpty).toBeHidden();
+      });
+
+      await test.step("Хост: открывает свои встречи", async () => {
+        await hostBooking.gotoBookings();
+      });
+
+      await test.step("У хоста встреча в ближайших", async () => {
+        await expect(hostBooking.upcomingByName(guest.name)).toBeVisible();
+        await expect(hostBooking.upcomingEmpty).toBeHidden();
+      });
     } finally {
       await hostContext.close();
       await guestContext.close();
+    }
+  });
+
+  test("гость без входа видит слот, но забронировать не может", async ({
+    browser,
+  }) => {
+    test.setTimeout(90_000);
+    const runId = Date.now() * 100 + test.info().workerIndex;
+    const skillTag = `Guest-anon-${runId}`;
+    const host = await openRegisteredSession(browser, "host-anon", runId);
+    const guest = await openSession(browser);
+    const created = [host.context];
+
+    try {
+      let slotDate = "";
+      let slotId = "";
+
+      await test.step("Хост: публикует навык и свободный слот", async () => {
+        const published = await publishSkillAndSlot(host, skillTag);
+        slotDate = published.slot.date;
+        slotId = published.slotId;
+      });
+
+      await test.step("Гость без аккаунта находит хоста и открывает слот", async () => {
+        await guest.booking.search(skillTag);
+        await guest.booking.openPerson(host.user.name);
+        await expect(guest.booking.personName).toHaveText(host.user.name);
+        await guest.booking.openSlot(slotDate, slotId);
+      });
+
+      await test.step("Окно брони открыто", async () => {
+        await expect(guest.booking.bookingConfirmDialog).toBeVisible({
+          timeout: 15_000,
+        });
+      });
+
+      await test.step("Гость: подтверждает бронь без входа", async () => {
+        await guest.booking.confirm();
+      });
+
+      await test.step("Сервис требует войти в аккаунт", async () => {
+        await expect(guest.booking.bookingConfirmError).toContainText(
+          "Нужно войти в аккаунт PomidorQA",
+        );
+        await expect(guest.booking.bookingConfirmSuccess).toBeHidden();
+      });
+    } finally {
+      try {
+        await cleanupUsersViaApi(created);
+      } finally {
+        await host.context.close();
+        await guest.context.close();
+      }
+    }
+  });
+
+  test("свой слот забронировать нельзя", async ({ browser }) => {
+    test.setTimeout(90_000);
+    const runId = Date.now() * 100 + test.info().workerIndex;
+    const skillTag = `Own-slot-${runId}`;
+    const host = await openRegisteredSession(browser, "host-own", runId);
+    const created = [host.context];
+
+    try {
+      let slotDate = "";
+      let slotId = "";
+
+      await test.step("Хост: публикует навык и свободный слот", async () => {
+        const published = await publishSkillAndSlot(host, skillTag);
+        slotDate = published.slot.date;
+        slotId = published.slotId;
+      });
+
+      await test.step("Хост: открывает свою публичную страницу", async () => {
+        await host.booking.gotoPerson(host.registered?.id ?? "");
+      });
+
+      await test.step("Страница хоста открыта", async () => {
+        await expect(host.booking.personName).toHaveText(host.user.name);
+      });
+
+      await test.step("Хост: пытается забронировать свой слот", async () => {
+        await host.booking.openSlot(slotDate, slotId);
+        await expect(host.booking.bookingConfirmDialog).toBeVisible({
+          timeout: 15_000,
+        });
+        await host.booking.confirm();
+      });
+
+      await test.step("Бронь своего слота отклонена", async () => {
+        await expect(host.booking.bookingConfirmError).toBeVisible({
+          timeout: 15_000,
+        });
+        await expect(host.booking.bookingConfirmSuccess).toBeHidden();
+      });
+    } finally {
+      try {
+        await cleanupUsersViaApi(created);
+      } finally {
+        await host.context.close();
+      }
+    }
+  });
+
+  test("закрытие окна подтверждения не создаёт бронь", async ({ browser }) => {
+    test.setTimeout(90_000);
+    const runId = Date.now() * 100 + test.info().workerIndex;
+    const skillTag = `Dismiss-${runId}`;
+    const host = await openRegisteredSession(browser, "dismiss-host", runId);
+    const guest = await openRegisteredSession(browser, "dismiss-guest", runId);
+    const created = [host.context, guest.context];
+
+    try {
+      const published = await test.step(
+        "Хост публикует слот",
+        async () => publishSkillAndSlot(host, skillTag),
+      );
+
+      await test.step("Гость открывает окно брони", async () => {
+        await guest.booking.search(skillTag);
+        await guest.booking.openPerson(host.user.name);
+        await guest.booking.openSlot(published.slot.date, published.slotId);
+      });
+
+      await test.step("Окно брони открыто", async () => {
+        await expect(guest.booking.bookingConfirmDialog).toBeVisible({
+          timeout: 15_000,
+        });
+      });
+
+      await test.step("Гость закрывает окно без подтверждения", async () => {
+        await guest.booking.dismiss();
+      });
+
+      await test.step("Диалог закрыт, встречи нет", async () => {
+        await expect(guest.booking.bookingConfirmDialog).toBeHidden();
+        await guest.booking.gotoBookings();
+        await expect(guest.booking.upcomingByName(host.user.name)).toHaveCount(0);
+      });
+    } finally {
+      try {
+        await cleanupUsersViaApi(created);
+      } finally {
+        await host.context.close();
+        await guest.context.close();
+      }
+    }
+  });
+
+  test("после брони слот исчезает со страницы участника", async ({
+    browser,
+  }) => {
+    test.setTimeout(90_000);
+    const runId = Date.now() * 100 + test.info().workerIndex;
+    const skillTag = `Gone-slot-${runId}`;
+    const host = await openRegisteredSession(browser, "gone-host", runId);
+    const guest = await openRegisteredSession(browser, "gone-guest", runId);
+    const created = [host.context, guest.context];
+
+    try {
+      const published = await test.step(
+        "Хост публикует слот",
+        async () => publishSkillAndSlot(host, skillTag),
+      );
+
+      await test.step("Гость бронирует слот", async () => {
+        await bookPublishedSlot(
+          guest,
+          host.user.name,
+          skillTag,
+          published.slot.date,
+          published.slotId,
+        );
+        await expect(guest.booking.bookingConfirmSuccess).toBeVisible({
+          timeout: 15_000,
+        });
+      });
+
+      await test.step("Гость обновляет страницу участника", async () => {
+        await guest.page.reload();
+      });
+
+      await test.step("Забронированный слот больше не доступен", async () => {
+        await expect(guest.booking.slotById(published.slotId)).toHaveCount(0);
+      });
+    } finally {
+      try {
+        await cleanupUsersViaApi(created);
+      } finally {
+        await host.context.close();
+        await guest.context.close();
+      }
     }
   });
 });

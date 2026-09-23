@@ -51,12 +51,40 @@ export class BookingStore {
    * Регистрация нового участника (сценарий 4 из ДЗ). Email — уникальный ключ,
    * как и в реальной регистрации PomidorQA через Supabase Auth.
    */
-  registerParticipant(name: string, email: string): Participant {
+  registerParticipant(name: string, email: string, password?: string): Participant {
+    if (!name.trim()) throw new ApiError(400, "name_required");
+    if (!email.trim()) throw new ApiError(400, "email_required");
+    if (password !== undefined && password.length < 8) {
+      throw new ApiError(400, "password_too_short");
+    }
     if (this.participantsByEmail.has(email)) throw new ApiError(409, "email_taken");
 
     const participant: Participant = { id: randomUUID(), name, email };
     this.participantsByEmail.set(email, participant);
     return participant;
+  }
+
+  deleteSlot(slotId: string, userId: string): void {
+    const slot = this.slots.get(slotId);
+    if (!slot) throw new ApiError(404, "slot_not_found");
+    if (slot.ownerId !== userId) throw new ApiError(403, "forbidden");
+    if (slot.status === "booked") throw new ApiError(409, "cannot_delete_booked_slot");
+    this.slots.delete(slotId);
+  }
+
+  cancelBooking(bookingId: string): Booking {
+    const booking = this.bookings.get(bookingId);
+    if (!booking) throw new ApiError(404, "booking_not_found");
+    if (booking.status === "cancelled") throw new ApiError(409, "already_cancelled");
+
+    booking.status = "cancelled";
+    const slot = this.slots.get(booking.slotId);
+    if (slot) slot.status = "free";
+    return booking;
+  }
+
+  getSlot(slotId: string): Slot | undefined {
+    return this.slots.get(slotId);
   }
 
   /**
@@ -127,8 +155,22 @@ export function createServer(store: BookingStore) {
       }
 
       if (req.method === "POST" && req.url === "/participants") {
-        const participant = store.registerParticipant(String(body.name), String(body.email));
+        const participant = store.registerParticipant(
+          String(body.name ?? ""),
+          String(body.email ?? ""),
+          body.password === undefined ? undefined : String(body.password),
+        );
         return send(res, 201, participant);
+      }
+
+      if (req.method === "DELETE" && req.url === "/slots") {
+        store.deleteSlot(String(body.slotId), String(body.userId));
+        return send(res, 200, { ok: true });
+      }
+
+      if (req.method === "POST" && req.url === "/bookings/cancel") {
+        const booking = store.cancelBooking(String(body.bookingId));
+        return send(res, 200, booking);
       }
 
       return send(res, 404, { error: "not_found" });

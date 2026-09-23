@@ -20,6 +20,28 @@ export function isPasswordValid(password: string): boolean {
   return password.length >= 8;
 }
 
+/** Часовые пояса профиля из requirements.md, п.14. */
+export const PROFILE_TIMEZONES = [
+  "Europe/Kaliningrad",
+  "Europe/Moscow",
+  "Europe/Samara",
+  "Asia/Yekaterinburg",
+  "Asia/Omsk",
+  "Asia/Novosibirsk",
+  "Asia/Krasnoyarsk",
+  "Asia/Irkutsk",
+  "Asia/Yakutsk",
+  "Asia/Vladivostok",
+] as const;
+
+export function isRegistrationFormComplete(
+  name: string,
+  email: string,
+  password: string,
+): boolean {
+  return name.trim().length > 0 && email.trim().length > 0 && isPasswordValid(password);
+}
+
 /**
  * Отображаемое время слота в часовом поясе участника (сценарий 3 из списка ДЗ).
  * Слот хранится как абсолютный момент времени (UTC), а видеть его участник должен

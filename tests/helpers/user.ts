@@ -13,7 +13,11 @@ const registerSubmitButton = (page: Page) =>
 
 export const ROUTES = {
   register: "/pomidorqa/auth/register",
+  login: "/pomidorqa/auth/login",
   profile: "/pomidorqa/profile",
+  bookings: "/pomidorqa/bookings",
+  slots: "/pomidorqa/profile/slots",
+  catalog: "/pomidorqa",
 };
 
 export type TestUser = {

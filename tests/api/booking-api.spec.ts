@@ -1,8 +1,6 @@
 import { test, expect, request, type APIRequestContext } from "@playwright/test";
 import { startServer, type BookingStore } from "../../src/pyramid/mock-booking-api";
 
-// API-уровень пирамиды: проверяем бизнес-логику бронирования через HTTP-запросы,
-
 test.describe("API: бронирование слота PomidorQA", () => {
   let store: BookingStore;
   let api: APIRequestContext;
@@ -120,6 +118,95 @@ test.describe("API: регистрация участника PomidorQA ", () =>
 
     expect(response.status()).toBe(409);
     expect((await response.json()).error).toBe("email_taken");
+  });
+
+  test("регистрация без имени — 400 name_required", async () => {
+    const response = await api.post("/participants", {
+      data: { name: "", email: `empty-name-${Date.now()}@example.com` },
+    });
+
+    expect(response.status()).toBe(400);
+    expect((await response.json()).error).toBe("name_required");
+  });
+
+  test("регистрация с коротким паролем — 400 password_too_short", async () => {
+    const response = await api.post("/participants", {
+      data: {
+        name: "Короткий Пароль",
+        email: `short-pass-${Date.now()}@example.com`,
+        password: "short",
+      },
+    });
+
+    expect(response.status()).toBe(400);
+    expect((await response.json()).error).toBe("password_too_short");
+  });
+});
+
+test.describe("API: слоты и отмена брони", () => {
+  let store: BookingStore;
+  let api: APIRequestContext;
+  let close: () => Promise<void>;
+
+  test.beforeAll(async () => {
+    const server = await startServer();
+    store = server.store;
+    close = server.close;
+    api = await request.newContext({ baseURL: server.baseURL });
+  });
+
+  test.afterAll(async () => {
+    await api.dispose();
+    await close();
+  });
+
+  test("свободный слот можно удалить", async () => {
+    const slot = store.createSlot("user-host-del", futureIso(60));
+
+    const response = await api.delete("/slots", {
+      data: { slotId: slot.id, userId: "user-host-del" },
+    });
+
+    expect(response.status()).toBe(200);
+    expect(store.getSlot(slot.id)).toBeUndefined();
+  });
+
+  test("забронированный слот удалить нельзя — 409 cannot_delete_booked_slot", async () => {
+    const slot = store.createSlot("user-host-booked", futureIso(60));
+    await api.post("/bookings", {
+      data: { slotId: slot.id, userId: "user-guest-booked" },
+    });
+
+    const response = await api.delete("/slots", {
+      data: { slotId: slot.id, userId: "user-host-booked" },
+    });
+
+    expect(response.status()).toBe(409);
+    expect((await response.json()).error).toBe("cannot_delete_booked_slot");
+    expect(store.getSlot(slot.id)?.status).toBe("booked");
+  });
+
+  test("после отмены брони слот снова free и его можно взять другому", async () => {
+    const slot = store.createSlot("user-host-cancel", futureIso(60));
+    const booked = await api.post("/bookings", {
+      data: { slotId: slot.id, userId: "user-guest-first" },
+    });
+    const booking = await booked.json();
+
+    const cancelled = await api.post("/bookings/cancel", {
+      data: { bookingId: booking.id },
+    });
+
+    expect(cancelled.status()).toBe(200);
+    expect((await cancelled.json()).status).toBe("cancelled");
+    expect(store.getSlot(slot.id)?.status).toBe("free");
+
+    const second = await api.post("/bookings", {
+      data: { slotId: slot.id, userId: "user-guest-second" },
+    });
+
+    expect(second.status()).toBe(201);
+    expect((await second.json()).guestId).toBe("user-guest-second");
   });
 });
 

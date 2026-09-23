@@ -6,7 +6,8 @@ test.describe("Профиль: действия с полями", () => {
     let profilePage: ProfilePage;
 
   test.beforeEach(async ({ page }) => {
-    const user = makeUser("hw8", Date.now());
+    const runId = Date.now() * 100 + test.info().workerIndex;
+    const user = makeUser("hw8", runId);
     profilePage = new ProfilePage(page);
     await registerUser(page, user);
     await profilePage.goto();
@@ -27,8 +28,6 @@ test.describe("Профиль: действия с полями", () => {
   });
 
   test("часовой пояс: выбираем из списка", async ({ page }) => {
-    // По умолчанию стоит Europe/Moscow — берём заведомо другой,
-    // иначе проверка прошла бы и без всякого выбора.
     const timezone = "Asia/Yekaterinburg";
 
     await test.step("Выбираем часовой пояс и сохраняем", async () => {
@@ -75,8 +74,6 @@ test.describe("Профиль: действия с полями", () => {
   test("навык: заполняем, выбираем тип и добавляем", async ({ page }) => {
     const skillTag = `Playwright-demo-${Date.now()}`;
 
-    // Комбо из трёх действий: ввод, выбор в списке, нажатие.
-    // У этой формы своя кнопка «Добавить», к верхнему «Сохранить» она отношения не имеет.
     await test.step("Добавляем навык «могу помочь»", async () => {
       await profilePage.addSkill(skillTag, "can_help");
     });
@@ -93,9 +90,6 @@ test.describe("Профиль: действия с полями", () => {
     });
 
     await test.step("Ни одного навыка не появилось", async () => {
-      // Поле навыка помечено required — браузер не даёт отправить форму.
-      // Проверяем именно результат: чипов ноль и блока «могу помочь» нет,
-      // а не «клик прошёл и ладно».
       await expect(profilePage.skillChips).toHaveCount(0);
       await expect(profilePage.canHelpSkills).not.toBeVisible();
     });
@@ -119,7 +113,6 @@ test.describe("Профиль: действия с полями", () => {
     await test.step("Навыки разошлись по своим блокам", async () => {
       await expect(profilePage.skillChips).toHaveCount(2);
       await expect(profilePage.canHelpSkills).toContainText(canHelpTag);
-      // Главная проверка теста: второй навык добавлен, но в «могу помочь» его нет.
       await expect(profilePage.canHelpSkills).not.toContainText(wantToLearnTag);
     });
   });
@@ -139,11 +132,94 @@ test.describe("Профиль: действия с полями", () => {
 
     await test.step("После перезагрузки все три значения пришли с сервера", async () => {
       await page.reload();
-      // expect.soft не останавливает тест на первой неудаче: если поедут
-      // два поля из трёх, увидим оба сразу, а не по одному за прогон.
       await expect.soft(profilePage.profileNameInput).toHaveValue(name);
       await expect.soft(profilePage.profileTelegramInput).toHaveValue(telegram);
       await expect.soft(profilePage.profileBioInput).toHaveValue(bio);
+    });
+  });
+
+  test("навык: удаляем добавленный чип", async ({ page }) => {
+    const skillTag = `Delete-skill-${Date.now()}`;
+
+    await test.step("Добавляем навык", async () => {
+      await profilePage.addSkill(skillTag);
+    });
+
+    await test.step("Навык появился", async () => {
+      await expect(profilePage.skillChip(skillTag)).toBeVisible();
+    });
+
+    await test.step("Удаляем навык", async () => {
+      await profilePage.removeSkill(skillTag);
+    });
+
+    await test.step("После удаления чипа нет", async () => {
+      await expect(profilePage.skillChip(skillTag)).toHaveCount(0);
+    });
+
+    await test.step("После перезагрузки навык не вернулся", async () => {
+      await page.reload();
+      await expect(profilePage.skillChip(skillTag)).toHaveCount(0);
+    });
+  });
+
+  test("навык: повторно тот же тип не создаёт дубль", async ({ page }) => {
+    const skillTag = `Duplicate-skill-${Date.now()}`;
+
+    await test.step("Добавляем навык первый раз", async () => {
+      await profilePage.addSkill(skillTag);
+    });
+
+    await test.step("Навык появился один раз", async () => {
+      await expect(profilePage.skillChip(skillTag)).toHaveCount(1);
+    });
+
+    await test.step("Пробуем добавить тот же навык ещё раз", async () => {
+      await profilePage.addSkill(skillTag);
+    });
+
+    await test.step("После перезагрузки дубля нет", async () => {
+      await page.reload();
+      await expect(profilePage.skillChip(skillTag)).toHaveCount(1);
+      await expect(profilePage.canHelpSkills).toContainText(skillTag);
+    });
+  });
+
+  test("имя обязательно — пустое поле форма не сохраняет", async ({ page }) => {
+    await test.step("Очищаем имя и жмём «Сохранить»", async () => {
+      await profilePage.profileNameInput.fill("");
+      await profilePage.attemptSaveProfile();
+    });
+
+    await test.step("Браузерная валидация блокирует пустое имя", async () => {
+      expect(
+        await profilePage.profileNameInput.evaluate(
+          (input: HTMLInputElement) => input.validity.valid,
+        ),
+      ).toBe(false);
+    });
+  });
+
+  test("одинаковый текст навыка разрешён в двух разных типах", async ({
+    page,
+  }) => {
+    const skillTag = `Both-types-${Date.now()}`;
+
+    await test.step("Добавляем навык в «могу помочь»", async () => {
+      await profilePage.addSkill(skillTag, "can_help");
+      await expect(profilePage.canHelpSkills).toContainText(skillTag);
+    });
+
+    await test.step("Добавляем тот же текст в «хочу разобрать»", async () => {
+      await profilePage.addSkill(skillTag, "want_to_learn");
+      await expect(profilePage.wantToLearnSkills).toContainText(skillTag);
+    });
+
+    await test.step("После перезагрузки оба типа содержат навык", async () => {
+      await page.reload();
+      await expect(profilePage.canHelpSkills).toContainText(skillTag);
+      await expect(profilePage.wantToLearnSkills).toContainText(skillTag);
+      await expect(profilePage.skillChip(skillTag)).toHaveCount(2);
     });
   });
 });

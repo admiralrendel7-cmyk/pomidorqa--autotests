@@ -1,7 +1,12 @@
 import { test, expect } from "@playwright/test";
-import { slotsOverlap, isPasswordValid, formatSlotTime, type TimeRange } from "../../src/pyramid/slots";
-
-//Юниты заппуск npx playwright test tests/unit/slots.spec.ts
+import {
+  slotsOverlap,
+  isPasswordValid,
+  isRegistrationFormComplete,
+  formatSlotTime,
+  PROFILE_TIMEZONES,
+  type TimeRange,
+} from "../../src/pyramid/slots";
 
 test.describe("Unit: пересечение слотов по времени", () => {
   test("пересекающиеся слоты — overlap === true", () => {
@@ -67,5 +72,52 @@ test.describe("Валидация пароля при регистрации ", 
 
   test("пароль ровно 8 символов — валиден", () => {
     expect(isPasswordValid("12345678")).toBe(true);
+  });
+
+  test("пустой пароль — невалиден", () => {
+    expect(isPasswordValid("")).toBe(false);
+  });
+
+  test("пароль длиннее 8 символов — валиден", () => {
+    expect(isPasswordValid("testpass123")).toBe(true);
+  });
+});
+
+test.describe("Регистрация: обязательные поля", () => {
+  test("без имени форма неполная", () => {
+    expect(isRegistrationFormComplete("", "a@example.com", "testpass123")).toBe(
+      false,
+    );
+  });
+
+  test("без email форма неполная", () => {
+    expect(isRegistrationFormComplete("Тимур", "", "testpass123")).toBe(false);
+  });
+
+  test("короткий пароль делает форму неполной", () => {
+    expect(isRegistrationFormComplete("Тимур", "a@example.com", "short")).toBe(
+      false,
+    );
+  });
+
+  test("имя, email и пароль ≥ 8 — форма полная", () => {
+    expect(
+      isRegistrationFormComplete("Тимур", "a@example.com", "testpass123"),
+    ).toBe(true);
+  });
+});
+
+test.describe("Часовые пояса профиля из requirements.md", () => {
+  const slotStart = new Date("2026-08-01T07:00:00Z");
+
+  test("все пояса из спецификации форматируют время как ЧЧ:ММ", () => {
+    for (const timeZone of PROFILE_TIMEZONES) {
+      expect(formatSlotTime(slotStart, timeZone)).toMatch(/^\d{2}:\d{2}$/);
+    }
+  });
+
+  test("Калининград и Владивосток показывают разное время одного слота", () => {
+    expect(formatSlotTime(slotStart, "Europe/Kaliningrad")).toBe("09:00");
+    expect(formatSlotTime(slotStart, "Asia/Vladivostok")).toBe("17:00");
   });
 });

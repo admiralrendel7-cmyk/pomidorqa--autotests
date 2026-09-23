@@ -16,10 +16,15 @@ export class BookingPage {
   bookingConfirmError: Locator;
   upcomingHeading: Locator;
   pastHeading: Locator;
+  upcomingMeetings: Locator;
   upcomingEmpty: Locator;
   cancelledStatus: Locator;
   bookingCancelButton: Locator;
   catalogEmpty: Locator;
+  cancelError: Locator;
+  bookingDismissButton: Locator;
+  calendarTimezoneHint: Locator;
+  personContent: Locator;
 
   constructor(page: Page) {
     this.page = page;
@@ -41,16 +46,68 @@ export class BookingPage {
     this.pastHeading = page.getByRole("heading", {
       name: "Прошедшие и отменённые",
     });
-    this.upcomingEmpty = page
-      .getByTestId("upcoming-meetings")
-      .getByText("Пока пусто");
+    this.upcomingMeetings = page.getByTestId("upcoming-meetings");
+    this.upcomingEmpty = this.upcomingMeetings.getByText("Пока пусто");
     this.cancelledStatus = page.getByText(/отменено/i);
     this.bookingCancelButton = page.getByRole("button", { name: "Отменить" });
     this.catalogEmpty = page.getByText("Пока никого не нашли по этому фильтру");
+    this.cancelError = page.getByTestId("cancel-error");
+    this.bookingDismissButton = page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Отмена" });
+    this.calendarTimezoneHint = page.getByTestId("slots-timezone");
+    this.personContent = page.locator("main");
   }
 
   meetingByName(name: string) {
     return this.page.getByText(name, { exact: true });
+  }
+
+  upcomingByName(name: string) {
+    return this.upcomingMeetings.filter({ hasText: name });
+  }
+
+  pastSection() {
+    return this.page
+      .locator("section")
+      .filter({ hasText: "Прошедшие и отменённые" });
+  }
+
+  pastCancelButton() {
+    return this.pastSection().getByRole("button", { name: "Отменить" });
+  }
+
+  slotCardByTime(time: string) {
+    return this.slotCard.filter({ hasText: time });
+  }
+
+  slotDeleteButton(time: string) {
+    return this.slotCardByTime(time).getByRole("button", { name: "Удалить" });
+  }
+
+  async deleteSlot(time: string) {
+    const card = this.slotCardByTime(time);
+    const deleted = this.page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/pomidorqa/profile/slots" &&
+        response.request().method() === "POST",
+      { timeout: 15_000 },
+    );
+    await this.slotDeleteButton(time).click();
+    await deleted;
+    await card.waitFor({ state: "hidden", timeout: 10_000 });
+  }
+
+  async dismiss() {
+    await this.bookingDismissButton.click();
+  }
+
+  canHelpOnPerson() {
+    return this.page.getByText(/может помочь с/i).locator("..");
+  }
+
+  wantToLearnOnPerson() {
+    return this.page.getByText(/хочет разобрать/i).locator("..");
   }
 
   cardByName(name: string) {
@@ -64,10 +121,52 @@ export class BookingPage {
   async addTomorrowSlot(time = "12:00") {
     const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
     const date = tomorrow.toISOString().slice(0, 10);
+    const slotsBefore = await this.slotCard.count();
     await this.slotsDateInput.fill(date);
     await this.slotsTimeInput.fill(time);
+    const created = this.page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/pomidorqa/profile/slots" &&
+        response.request().method() === "POST",
+      { timeout: 15_000 },
+    );
     await this.addSlotButton.click();
+    await created;
+    await this.slotCard.nth(slotsBefore).waitFor({ state: "visible" });
     return { date, time };
+  }
+
+  async addSlotIn(msFromNow: number) {
+    const instant = new Date(Date.now() + msFromNow);
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Europe/Moscow",
+      hour12: false,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).formatToParts(instant);
+    const value = (type: Intl.DateTimeFormatPartTypes) =>
+      parts.find((part) => part.type === type)?.value ?? "";
+    const date = `${value("year")}-${value("month")}-${value("day")}`;
+    const hour = String(Number(value("hour")) % 24).padStart(2, "0");
+    const time = `${hour}:${value("minute")}`;
+    await this.slotsDateInput.fill(date);
+    await this.slotsTimeInput.fill(time);
+    const created = this.page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/pomidorqa/profile/slots" &&
+        response.request().method() === "POST",
+      { timeout: 15_000 },
+    );
+    await this.addSlotButton.click();
+    await created;
+    return { date, time };
+  }
+
+  async gotoPerson(id: string) {
+    await this.page.goto(`/pomidorqa/people/${id}`);
   }
 
   async search(skillTag: string) {

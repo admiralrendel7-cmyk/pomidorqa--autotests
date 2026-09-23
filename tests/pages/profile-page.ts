@@ -12,6 +12,7 @@ export class ProfilePage{
     skillTypeSelect:Locator;
     addSkillButton:Locator;
     canHelpSkills:Locator;
+    wantToLearnSkills:Locator;
     skillChips:Locator; 
 
     constructor(page: Page) {
@@ -25,6 +26,7 @@ export class ProfilePage{
         this.skillTypeSelect = page.locator("#pomidorqa-profile-skill-type");
         this.addSkillButton = page.getByRole("button", { name: "Добавить" });
         this.canHelpSkills = page.getByTestId("can-help-skills");
+        this.wantToLearnSkills = page.locator('[data-skills="want_to_learn"]');
         this.skillChips = page.locator("[data-skill-tag]");
     }
 
@@ -62,10 +64,32 @@ export class ProfilePage{
     await this.profileBioInput.fill(bio);
   }
 
+  async attemptSaveProfile() {
+    await this.profileSaveButton.click();
+  }
+
   async addSkill(tag: string, type = "can_help") {
     await this.skillInput.fill(tag);
     await this.skillTypeSelect.selectOption(type);
+    const saved = this.page.waitForResponse(
+      (response) =>
+        response.url().endsWith(ROUTES.profile) &&
+        response.request().method() === "POST",
+    );
     await this.addSkillButton.click();
+    await saved;
+  }
+
+  async removeSkill(tag: string) {
+    const chip = this.skillChip(tag);
+    const saved = this.page.waitForResponse(
+      (response) =>
+        response.url().endsWith(ROUTES.profile) &&
+        response.request().method() === "POST",
+    );
+    await chip.getByRole("button").click();
+    await saved;
+    await chip.waitFor({ state: "detached", timeout: 10_000 });
   }
 }
 
